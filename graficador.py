@@ -42,14 +42,31 @@ with st.sidebar:
     
     st.divider()
     
+    # Controles de color
+    st.write("Estilo de Vectores")
+    estilo_color = st.radio("Modo de color:", ["Sólido (Cumbres y Valles)", "Degradado (Magnitud del Gradiente)"])
+    
+    color_valles = "#0000FF" # Azul por defecto
+    color_cumbres = "#FF0000" # Rojo por defecto
+    
+    if estilo_color == "Sólido (Cumbres y Valles)":
+        col1, col2 = st.columns(2)
+        color_valles = col1.color_picker("Color Valles", "#0000FF")
+        color_cumbres = col2.color_picker("Color Cumbres", "#FF0000")
+        
+    st.divider()
+    
     ecuacion_str = st.text_input("Función f(x,y):", key="ecuacion")
     st.button("Graficar Función", on_click=ejecutar_grafica, type="primary", use_container_width=True)
     
     with st.expander("Teclado Matemático"):
+        # Teclado ampliado con SymPy
         teclas = [
             [('x', 'x'), ('y', 'y'), ('e', 'E'), ('π', 'pi')],
-            [('(', '('), (')', ')'), ('√', 'sqrt('), ('ln', 'ln(')],
+            [('(', '('), (')', ')'), ('|x|', 'Abs('), ('√', 'sqrt(')],
             [('sin', 'sin('), ('cos', 'cos('), ('tan', 'tan('), ('exp', 'exp(')],
+            [('asin', 'asin('), ('acos', 'acos('), ('atan', 'atan('), ('ln', 'ln(')],
+            [('sinh', 'sinh('), ('cosh', 'cosh('), ('tanh', 'tanh('), ('log', 'log(')],
             [('7', '7'), ('8', '8'), ('9', '9'), ('÷', '/')],
             [('4', '4'), ('5', '5'), ('6', '6'), ('×', '*')],
             [('1', '1'), ('2', '2'), ('3', '3'), ('-', '-')],
@@ -134,7 +151,7 @@ if st.session_state.ecuacion_graficada:
             st.error("Hubo un problema evaluando la matriz numérica. Revisa si el rango genera divisiones por cero.")
             st.stop()
 
-        # Renderizado según el modo
+        # Renderizado según el modo (2D o 3D)
         if "2D" in modo_vista:
             fig = plt.figure(figsize=(10, 8))
             fig.subplots_adjust(bottom=0.15)
@@ -146,12 +163,24 @@ if st.session_state.ecuacion_graficada:
                 plt.contourf(X, Y, Z, levels=20, cmap='Greys', alpha=0.4)
             
             if mostrar_vectores:
-                # Matplotlib, mapa continuo
-                flechas = plt.quiver(X, Y, U, V, magnitud, cmap='jet', scale=None, headwidth=4)
-                
-                if np.nanmin(magnitud) != np.nanmax(magnitud):
-                    cbar = plt.colorbar(flechas)
-                    cbar.set_label('Magnitud del Gradiente ||∇f||')
+                if estilo_color == "Degradado (Magnitud del Gradiente)":
+                    flechas = plt.quiver(X, Y, U, V, magnitud, cmap='jet', scale=None, headwidth=4)
+                    if np.nanmin(magnitud) != np.nanmax(magnitud):
+                        cbar = plt.colorbar(flechas)
+                        cbar.set_label('Magnitud del Gradiente ||∇f||')
+                else:
+                    # Modo sólido 2D usando los colores elegidos
+                    colores_solidos = ListedColormap([color_valles, color_cumbres])
+                    # Se crea un arreglo binario para asegurar un corte perfecto a la mitad
+                    umbral = (np.nanmax(Z) + np.nanmin(Z)) / 2.0
+                    Z_binario = np.where(Z >= umbral, 1, 0)
+                    flechas = plt.quiver(X, Y, U, V, Z_binario, cmap=colores_solidos, scale=None, headwidth=4)
+                    
+                    # Leyenda personalizada para el modo sólido
+                    from matplotlib.patches import Patch
+                    legend_elements = [Patch(facecolor=color_cumbres, label='Cumbres'),
+                                       Patch(facecolor=color_valles, label='Valles')]
+                    plt.legend(handles=legend_elements, loc='upper right')
 
             plt.title('Mapa del Gradiente y Curvas de Nivel')
             plt.xlabel('Eje X')
@@ -181,20 +210,29 @@ if st.session_state.ecuacion_graficada:
                 ))
 
             if mostrar_vectores:
-                if np.any(mask_valles):
+                if estilo_color == "Degradado (Magnitud del Gradiente)":
                     fig.add_trace(go.Cone(
-                        x=X.flatten()[mask_valles], y=Y.flatten()[mask_valles], z=Z_piso[mask_valles],
-                        u=U.flatten()[mask_valles], v=V.flatten()[mask_valles], w=np.zeros_like(Z_flat)[mask_valles],
-                        colorscale=[[0, 'blue'], [1, 'blue']], sizemode="scaled", sizeref=0.5,
-                        showscale=False, name='Valles (Dirección del gradiente)', showlegend=True
+                        x=X.flatten(), y=Y.flatten(), z=Z_piso.flatten(),
+                        u=U.flatten(), v=V.flatten(), w=np.zeros_like(Z_flat),
+                        colorscale='Jet', sizemode="scaled", sizeref=0.5,
+                        showscale=True, name='Magnitud Vectorial', showlegend=False,
+                        colorbar=dict(title="||∇f||", len=0.5, x=0.9)
                     ))
-                if np.any(mask_cumbres):
-                    fig.add_trace(go.Cone(
-                        x=X.flatten()[mask_cumbres], y=Y.flatten()[mask_cumbres], z=Z_piso[mask_cumbres],
-                        u=U.flatten()[mask_cumbres], v=V.flatten()[mask_cumbres], w=np.zeros_like(Z_flat)[mask_cumbres],
-                        colorscale=[[0, 'red'], [1, 'red']], sizemode="scaled", sizeref=0.5,
-                        showscale=False, name='Cumbres (Dirección del gradiente)', showlegend=True
-                    ))
+                else:
+                    if np.any(mask_valles):
+                        fig.add_trace(go.Cone(
+                            x=X.flatten()[mask_valles], y=Y.flatten()[mask_valles], z=Z_piso[mask_valles],
+                            u=U.flatten()[mask_valles], v=V.flatten()[mask_valles], w=np.zeros_like(Z_flat)[mask_valles],
+                            colorscale=[[0, color_valles], [1, color_valles]], sizemode="scaled", sizeref=0.5,
+                            showscale=False, name='Valles (Dirección del gradiente)', showlegend=True
+                        ))
+                    if np.any(mask_cumbres):
+                        fig.add_trace(go.Cone(
+                            x=X.flatten()[mask_cumbres], y=Y.flatten()[mask_cumbres], z=Z_piso[mask_cumbres],
+                            u=U.flatten()[mask_cumbres], v=V.flatten()[mask_cumbres], w=np.zeros_like(Z_flat)[mask_cumbres],
+                            colorscale=[[0, color_cumbres], [1, color_cumbres]], sizemode="scaled", sizeref=0.5,
+                            showscale=False, name='Cumbres (Dirección del gradiente)', showlegend=True
+                        ))
 
             fig.update_layout(
                 margin=dict(l=0, r=0, b=0, t=0),
